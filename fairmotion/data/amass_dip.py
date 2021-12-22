@@ -5,7 +5,7 @@ import pickle as pkl
 from fairmotion.core import motion as motion_class
 from fairmotion.utils import constants
 from fairmotion.ops import conversions
-
+from scipy.spatial.transform import Rotation as R
 
 SMPL_MAJOR_JOINTS = [1, 2, 3, 4, 5, 6, 9, 12, 13, 14, 15, 16, 17, 18, 19]
 SMPL_NR_JOINTS = 24
@@ -100,6 +100,7 @@ def load(
     scale=1.0,
     load_skel=True,
     load_motion=True,
+    rotvec=True,
     v_up_skel=np.array([0.0, 1.0, 0.0]),
     v_face_skel=np.array([0.0, 0.0, 1.0]),
     v_up_env=np.array([0.0, 1.0, 0.0]),
@@ -138,25 +139,45 @@ def load(
         # Assume 60fps
         motion.set_fps(60.0)
         dt = float(1 / motion.fps)
-        with open(file, "rb") as f:
-            data = pkl.load(f, encoding="latin1")
-            poses = np.array(data["poses"])  # shape (seq_length, 135)
-            assert len(poses) > 0, "file is empty"
-            poses = poses.reshape((-1, len(SMPL_MAJOR_JOINTS), 3, 3))
 
-            for pose_id, pose in enumerate(poses):
-                pose_data = [
-                    constants.eye_T() for _ in range(len(SMPL_JOINTS))
-                ]
-                major_joint_id = 0
-                for joint_id, joint_name in enumerate(SMPL_JOINTS):
-                    if joint_id in SMPL_MAJOR_JOINTS:
-                        pose_data[
-                            motion.skel.get_index_joint(joint_name)
-                        ] = conversions.R2T(pose[major_joint_id])
-                        major_joint_id += 1
-                motion.add_one_frame(pose_data)
+        hips = None
+        _scale = None
+        if isinstance(file, str) and file.endswith("pkl"):
+            with open(file, "rb") as f:
+                data = pkl.load(f, encoding="latin1")
+                poses = np.array(data["smpl_poses"])  # shape (seq_length, 135)
+                assert len(poses) > 0, "file is empty"
+                
+                smpl_poses = poses.reshape(-1, 3)
+                poses = R.from_rotvec(smpl_poses).as_matrix()
+                poses = poses.reshape((-1, SMPL_NR_JOINTS, 3, 3))
+                
+                hips = data["smpl_trans"]
+                _scale = data["smpl_scaling"]
+        elif isinstance(file, str) and file.endswith("npy"):
+            poses = np.load(file)
+        elif isinstance(file, np.ndarray):
+            poses = file
+        else:
+            raise NotImplementedError
 
+        for pose_id, pose in enumerate(poses):
+            pose_data = [
+                constants.eye_T() for _ in range(len(SMPL_JOINTS))
+            ]
+
+            for joint_id, joint_name in enumerate(SMPL_JOINTS):
+                pose_data[
+                    motion.skel.get_index_joint(joint_name)
+                ] = conversions.R2T(pose[joint_id])
+            motion.add_one_frame(pose_data)
+            
+            if hips is not None and _scale is not None:
+                hips_pos = np.ones((1, 4)) * _scale
+                hips_pos[:, :-1] = hips[pose_id] * scale
+                T = np.eye(4)
+                T[:, -1] = hips_pos / _scale
+                motion.poses[pose_id].set_root_transform(T, local=True)
     return motion
 
 
