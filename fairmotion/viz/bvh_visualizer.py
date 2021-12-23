@@ -3,6 +3,8 @@
 import argparse
 import numpy as np
 import os
+os.environ["KMP_DUPLICATE_LIB_OK"]  =  "TRUE"
+
 from OpenGL.GL import *
 from OpenGL.GLU import *
 from OpenGL.GLUT import *
