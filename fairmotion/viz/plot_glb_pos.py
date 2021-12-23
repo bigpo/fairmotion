@@ -1,7 +1,9 @@
 import os
+os.environ["KMP_DUPLICATE_LIB_OK"]  =  "TRUE"
 import pathlib
-
 import matplotlib.pyplot as plt
+plt.switch_backend('Agg')
+
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 from numpy.lib.type_check import imag
